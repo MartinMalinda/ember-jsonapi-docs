@@ -11,6 +11,7 @@
   "author": "Stanley Stuart <stanley+npm@stan.li>",
   "license": "MIT",
   "devDependencies": {
+    "babel-plugin-transform-regenerator": "^6.20.0",
     "chai": "^3.4.1",
     "mocha": "^3.2.0",
     "standard": "^8.6.0",

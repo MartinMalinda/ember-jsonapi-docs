@@ -31,27 +31,25 @@ if (fs.existsSync('tmp/docs')) {
   rm.sync('tmp/docs')
 }
 
-function transformProjectFiles (projectName) {
+async function transformProjectFiles (projectName) {
   console.log('reading docs for ' + projectName)
-  let promise = RSVP.resolve(readDocs(projectName))
-    .then((stuff) => {
-      console.log('adding since tags for ' + projectName)
-      return addSinceTags(stuff)
-    }).then((stuff) => {
-      console.log('adding inherited items for ' + projectName)
-      return addInheritedItems(stuff)
-    }).then(yuidocs => {
-      console.log('normalizing yuidocs for ' + projectName)
-      return normalizeIDs(yuidocs, projectName)
-    }).then(doc => {
-      console.log('creating version index for ' + projectName)
-      return createVersionIndex(db, projectName, doc).then(() => doc)
-    }).then(doc => {
-      console.log('converting markdown to html for ' + projectName)
-      return markup(doc)
-    })
+  let docs = await RSVP.resolve(readDocs(projectName))
 
-  return promise
+  console.log('adding since tags for ' + projectName)
+  let docsWithTags = await addSinceTags(docs)
+
+  console.log('adding inherited items for ' + projectName)
+  let docsWithInheritedItems = await addInheritedItems(docsWithTags)
+
+  console.log('normalizing yuidocs for ' + projectName)
+  let normalizedDocs = await normalizeIDs(docsWithInheritedItems, projectName)
+
+  console.log('creating version index for ' + projectName)
+  let docsWithVersionIndex = await createVersionIndex(db, projectName, normalizedDocs).then(() => normalizedDocs)
+
+  console.log('converting markdown to html for ' + projectName)
+  return await markup(docsWithVersionIndex)
+
 }
 
 let projects = ['ember', 'ember-data']
@@ -59,22 +57,27 @@ let releaseToGenDocFor = process.argv[2] ? process.argv[2] : ''
 
 console.log('downloading docs for ' + projects.join(' & '))
 
-fetch(db, releaseToGenDocFor).then(downloadedFiles => {
-  RSVP.map(projects, transformProjectFiles).then(docs => {
-    let giantDocument = {
-      data: _.flatten(docs.map(doc => doc.data))
+fetch(db, releaseToGenDocFor).then(async (downloadedFiles) => {
+
+  try {
+    for (let i = 0; i < projects.length; i++) {
+      let docs = await transformProjectFiles(projects[i])
+      let giantDocument = {
+        data: _.flatten(docs.map(doc => doc.data))
+      }
+      console.log('normalizing dependencies')
+      normalizeEmberDependencies(giantDocument)
+      await putClassesInCouch(giantDocument, db)
+
     }
-    console.log('normalizing dependencies')
-    normalizeEmberDependencies(giantDocument)
 
-    return putClassesInCouch(giantDocument, db)
-  }).then(function () {
     let docs = glob.sync('tmp/docs/**/*.json')
-
     console.log('putting document in CouchDB')
-    return batchUpdate(db, docs)
-  }).catch(function (err) {
+    return batchUpdate(db, docs);
+
+  } catch (err) {
     console.warn('err!', err, err.stack)
     process.exit(1)
-  })
+  }
+
 })
